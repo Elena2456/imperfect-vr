@@ -1,22 +1,374 @@
+<!-- ...existing code... -->
 <!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8">
-    <title>My First VR World</title>
+    <title>My little VR world</title>
     <script src="aframe.min.js"></script>
+    <style> body { margin: 0; } </style>
   </head>
   <body>
-  <!-- add VR here -->
-  <a-scene>
-    <a-sphere position="0 1.25 -1" radius="1.25" color="#EF2D5E"></a-sphere>
-    <a-box position="-1 0.5 1" rotation="0 45 0" width="1" height="1" depth="1" color="#4CC3D9"></a-box>
-    <a-cylinder position="1 0.75 1" radius="0.5" height="1.5" color="#FFC65D"></a-cylinder>
-    <a-plane rotation="-90 0 0" width="4" height="4" src="vr.jpg"></a-plane>
-    <a-sky color="#030303"></a-sky>
-    <a-entity position="0 0 3.8">
-      <a-camera></a-camera>
-    </a-entity>
-    
-  </a-scene>  
+    <!-- a scene with floating glowing dots -->
+    <a-scene background="color: #041033">
+      <!-- night sky (base) and subtle starry sky will be added by script -->
+      <a-sky color="#041033"></a-sky>
+
+      <!-- ground and sky -->
+      <a-plane rotation="-90 0 0" width="30" height="30" color="#0b1b0f" shadow="receive: true"></a-plane>
+
+      <!-- moonlight directional light (casts shadows) -->
+      <a-entity light="type: directional; color: #dfeeff; intensity: 0.75; castShadow: true"
+                position="-4 8 6"
+                rotation="-45 35 0"
+                shadow="mapSize: 1024 1024; cameraLeft: -12; cameraRight: 12; cameraBottom: -12; cameraTop: 12"></a-entity>
+
+      <!-- subtle ambient light for context (keeps scene readable; blobs mostly glow via emissive) -->
+      <a-entity light="type: ambient; color: #223344; intensity: 0.18"></a-entity>
+
+      <!-- camera -->
+      <a-entity position="0 1.6 3.8">
+        <a-camera></a-camera>
+      </a-entity>
+
+      <!-- container for grass, trees, distant deer and blobs -->
+      <a-entity id="grass-area"></a-entity>
+      <a-entity id="trees-area"></a-entity>
+      <a-entity id="deer-area"></a-entity>
+      <a-entity id="glow-blobs"></a-entity>
+      <a-entity id="star-field"></a-entity>
+      <a-entity id="moon-area"></a-entity>
+
+      <script>
+        AFRAME.registerComponent('float-blob', {
+          schema: {
+            amplitude: { type: 'number', default: 0.25 },
+            speed: { type: 'number', default: 0.6 },
+            phase: { type: 'number', default: 0 },
+            hue: { type: 'number', default: 0 } // 0..360
+          },
+          init: function () {
+            this.baseY = this.el.object3D.position.y;
+          },
+          tick: function (time) {
+            var t = time / 1000;
+            var s = this.data.speed;
+            var a = this.data.amplitude;
+            var p = this.data.phase;
+            this.el.object3D.position.y = this.baseY + Math.sin(t * s + p) * a;
+            var hue = (this.data.hue + Math.sin(t * 0.5 + p) * 10) % 360;
+            if (hue < 0) hue += 360;
+            var color = hslToHex(hue, 90, 60);
+            var mesh = this.el.getObject3D('mesh');
+            if (mesh && mesh.material) {
+              mesh.material.emissive = new THREE.Color(color);
+              mesh.material.color = new THREE.Color(color);
+              mesh.material.emissiveIntensity = 0.9 + 0.2 * Math.sin(t * 0.8 + p);
+            }
+          }
+        });
+
+        AFRAME.registerComponent('sway-blade', {
+          schema: {
+            amplitude: { type: 'number', default: 8 },
+            speed: { type: 'number', default: 0.6 },
+            phase: { type: 'number', default: 0 },
+            axis: { type: 'string', default: 'z' }
+          },
+          init: function () {
+            this.originalRot = this.el.object3D.rotation.clone();
+          },
+          tick: function (time) {
+            var t = time / 1000;
+            var a = this.data.amplitude * Math.PI / 180;
+            var s = this.data.speed;
+            var p = this.data.phase;
+            var angle = Math.sin(t * s + p) * a;
+            var r = this.el.object3D.rotation;
+            if (this.data.axis === 'z') { r.z = this.originalRot.z + angle; }
+            else if (this.data.axis === 'x') { r.x = this.originalRot.x + angle; }
+            else { r.y = this.originalRot.y + angle; }
+          }
+        });
+
+        // small twinkling for stars
+        AFRAME.registerComponent('twinkle-star', {
+          schema: { speed: { type: 'number', default: 1.0 }, phase: { type: 'number', default: 0 } },
+          init: function () { this.mat = (this.el.getObject3D('mesh')||{}).material; },
+          tick: function (time) {
+            if (!this.mat) return;
+            var t = time/1000;
+            var p = this.data.phase;
+            var v = 0.5 + 0.5 * Math.abs(Math.sin(t * this.data.speed + p));
+            this.mat.emissiveIntensity = 0.8 + 0.6 * v;
+          }
+        });
+
+        // helper: convert HSL to hex (number usable by three.js)
+        function hslToHex(h, s, l) {
+          s /= 100; l /= 100;
+          var c = (1 - Math.abs(2 * l - 1)) * s;
+          var x = c * (1 - Math.abs((h / 60) % 2 - 1));
+          var m = l - c/2;
+          var r=0,g=0,b=0;
+          if (0<=h && h<60) { r=c; g=x; b=0; }
+          else if (60<=h && h<120) { r=x; g=c; b=0; }
+          else if (120<=h && h<180) { r=0; g=c; b=x; }
+          else if (180<=h && h<240) { r=0; g=x; b=c; }
+          else if (240<=h && h<300) { r=x; g=0; b=c; }
+          else { r=c; g=0; b=x; }
+          r = Math.round((r+m)*255); g = Math.round((g+m)*255); b = Math.round((b+m)*255);
+          return (r<<16) | (g<<8) | b;
+        }
+
+        // create a swaying grass field
+        (function spawnGrass () {
+          var container = document.querySelector('#grass-area');
+          var count = 240;
+          var spread = 3.2;
+          for (var i = 0; i < count; i++) {
+            var x = (Math.random()*2-1)*spread;
+            var z = (Math.random()*2-1)*spread - 0.6;
+            var height = 0.25 + Math.random()*0.6;
+            var bladeWidth = 0.02 + Math.random()*0.03;
+            var hue = 95 + Math.random()*35;
+            var lightness = 30 + Math.random()*20;
+            var col = 'hsl(' + Math.floor(hue) + ', 55%, ' + Math.floor(lightness) + '%)';
+
+            var wrapper = document.createElement('a-entity');
+            wrapper.setAttribute('position', x + ' 0 ' + z);
+            wrapper.object3D && (wrapper.object3D.rotation.y = Math.random()*Math.PI*2);
+
+            var blade = document.createElement('a-plane');
+            blade.setAttribute('height', height.toString());
+            blade.setAttribute('width', bladeWidth.toString());
+            blade.setAttribute('position', '0 ' + (height/2).toFixed(3) + ' 0');
+            blade.setAttribute('rotation', (Math.random()*40-20) + ' ' + (Math.random()*360) + ' 0');
+            blade.setAttribute('material', 'color: ' + col + '; side: double; roughness: 1; metalness: 0;');
+            blade.setAttribute('shadow', 'cast: true; receive: false');
+
+            var highlight = document.createElement('a-plane');
+            highlight.setAttribute('height', (height*0.9).toString());
+            highlight.setAttribute('width', (bladeWidth*0.6).toString());
+            highlight.setAttribute('position', '0 ' + (height*0.52).toFixed(3) + ' 0.001');
+            highlight.setAttribute('rotation', blade.getAttribute('rotation'));
+            var highlightCol = 'hsl(' + Math.floor(hue-10) + ', 60%, ' + Math.floor(Math.min(lightness+18,85)) + '%)';
+            highlight.setAttribute('material', 'color: ' + highlightCol + '; side: double; opacity: 0.45; transparent: true;');
+            highlight.setAttribute('shadow', 'cast: false;');
+
+            var amplitude = 4 + Math.random()*6;
+            var speed = 0.25 + Math.random()*0.5;
+            var phase = Math.random()*Math.PI*2;
+            var axis = (Math.random()<0.5)? 'z' : 'x';
+            wrapper.setAttribute('sway-blade', 'amplitude: ' + amplitude + '; speed: ' + speed + '; phase: ' + phase + '; axis: ' + axis + ';');
+
+            wrapper.appendChild(blade);
+            wrapper.appendChild(highlight);
+            container.appendChild(wrapper);
+          }
+        })();
+
+        // create simple stylized trees with shadows
+        (function spawnTrees () {
+          var container = document.querySelector('#trees-area');
+          var count = 14;
+          var spread = 8;
+          for (var i = 0; i < count; i++) {
+            var x = (Math.random()*2-1) * spread;
+            var z = -6 - Math.random()*6; // place trees farther back
+            var trunkHeight = 0.6 + Math.random()*0.8;
+            var trunkRadius = 0.05 + Math.random()*0.06;
+            var canopySize = 0.5 + Math.random()*0.6;
+            var hue = 90 + Math.random()*30;
+            var col = 'hsl(' + Math.floor(hue) + ', 45%, 22%)';
+            var trunkCol = '#4b2b1f';
+
+            var tree = document.createElement('a-entity');
+            tree.setAttribute('position', x + ' 0 ' + z);
+
+            var trunk = document.createElement('a-cylinder');
+            trunk.setAttribute('height', trunkHeight.toString());
+            trunk.setAttribute('radius', trunkRadius.toString());
+            trunk.setAttribute('position', '0 ' + (trunkHeight/2).toFixed(3) + ' 0');
+            trunk.setAttribute('material', 'color: ' + trunkCol + '; roughness: 1; metalness: 0;');
+            trunk.setAttribute('shadow', 'cast: true; receive: false');
+
+            // canopy: stacked spheres for stylized tree
+            var canopy = document.createElement('a-entity');
+            var layers = 3;
+            for (var l = 0; l < layers; l++) {
+              var s = document.createElement('a-sphere');
+              var size = canopySize * (1 - l*0.18);
+              var y = trunkHeight - 0.05 + l*(size*0.5);
+              s.setAttribute('radius', size.toFixed(3));
+              s.setAttribute('position', '0 ' + y.toFixed(3) + ' 0');
+              s.setAttribute('material', 'color: ' + col + '; roughness: 0.9; metalness: 0;');
+              s.setAttribute('shadow', 'cast: true; receive: false');
+              canopy.appendChild(s);
+            }
+
+            tree.appendChild(trunk);
+            tree.appendChild(canopy);
+            container.appendChild(tree);
+          }
+        })();
+
+        // create distant deer silhouettes (simple low-poly groups) that receive moonlight as silhouettes
+        (function spawnDeer () {
+          var container = document.querySelector('#deer-area');
+          var count = 5;
+          for (var i = 0; i < count; i++) {
+            var x = -6 + Math.random()*12;
+            var z = -12 - Math.random()*8; // far away
+            var scale = 0.6 + Math.random()*0.8;
+            var deer = document.createElement('a-entity');
+            deer.setAttribute('position', x + ' 0 ' + z);
+            deer.setAttribute('rotation', '0 ' + (120 + Math.random()*120).toFixed(1) + ' 0'); // subtle facing
+            deer.object3D && (deer.object3D.rotation.x = 0);
+
+            // body
+            var body = document.createElement('a-box');
+            body.setAttribute('depth', (0.25*scale).toFixed(3));
+            body.setAttribute('height', (0.18*scale).toFixed(3));
+            body.setAttribute('width', (0.45*scale).toFixed(3));
+            body.setAttribute('position', '0 ' + (0.18*scale/2).toFixed(3) + ' 0');
+            body.setAttribute('material', 'color: #020202; roughness: 1; metalness: 0;');
+
+            // neck/head
+            var neck = document.createElement('a-box');
+            neck.setAttribute('depth', (0.12*scale).toFixed(3));
+            neck.setAttribute('height', (0.14*scale).toFixed(3));
+            neck.setAttribute('width', (0.12*scale).toFixed(3));
+            neck.setAttribute('position', (0.28*scale).toFixed(3) + ' ' + (0.30*scale).toFixed(3) + ' ' + (0).toFixed(3));
+            neck.setAttribute('rotation', '-15 0 0');
+            neck.setAttribute('material', 'color: #020202;');
+
+            var head = document.createElement('a-box');
+            head.setAttribute('depth', (0.08*scale).toFixed(3));
+            head.setAttribute('height', (0.09*scale).toFixed(3));
+            head.setAttribute('width', (0.12*scale).toFixed(3));
+            head.setAttribute('position', (0.45*scale).toFixed(3) + ' ' + (0.33*scale).toFixed(3) + ' 0.0');
+            head.setAttribute('material', 'color: #020202;');
+
+            // legs
+            for (var l = 0; l < 4; l++) {
+              var leg = document.createElement('a-box');
+              leg.setAttribute('depth', (0.06*scale).toFixed(3));
+              leg.setAttribute('height', (0.18*scale).toFixed(3));
+              leg.setAttribute('width', (0.04*scale).toFixed(3));
+              var lx = (-0.12 + (l%2)*0.22)*scale;
+              var lz = (l<2) ? -0.08*scale : 0.08*scale;
+              leg.setAttribute('position', lx.toFixed(3) + ' ' + (0.09*scale).toFixed(3) + ' ' + lz.toFixed(3));
+              leg.setAttribute('material', 'color: #020202;');
+              deer.appendChild(leg);
+            }
+
+            // optional small antlers (simple thin boxes)
+            if (Math.random() < 0.6) {
+              var ant1 = document.createElement('a-box');
+              ant1.setAttribute('depth', (0.02*scale).toFixed(3));
+              ant1.setAttribute('height', (0.06*scale).toFixed(3));
+              ant1.setAttribute('width', (0.02*scale).toFixed(3));
+              ant1.setAttribute('position', (0.51*scale).toFixed(3) + ' ' + (0.39*scale).toFixed(3) + ' 0.03');
+              ant1.setAttribute('rotation', '0 0 30');
+              ant1.setAttribute('material', 'color: #020202;');
+              deer.appendChild(ant1);
+              var ant2 = ant1.cloneNode();
+              ant2.setAttribute('position', (0.51*scale).toFixed(3) + ' ' + (0.39*scale).toFixed(3) + ' -0.03');
+              ant2.setAttribute('rotation', '0 0 -30');
+              deer.appendChild(ant2);
+            }
+
+            // ensure deer cast shadows (silhouettes)
+            deer.setAttribute('shadow', 'cast: true; receive: false');
+            deer.appendChild(body);
+            deer.appendChild(neck);
+            deer.appendChild(head);
+            container.appendChild(deer);
+          }
+        })();
+
+        // create moon + soft halo
+        (function spawnMoon () {
+          var container = document.querySelector('#moon-area');
+          var moon = document.createElement('a-sphere');
+          moon.setAttribute('position', '2 6 -8');
+          moon.setAttribute('radius', '0.7');
+          moon.setAttribute('material', 'color: #fff7e6; emissive: #fff7e6; emissiveIntensity: 1; roughness: 0.2; metalness: 0;');
+          moon.setAttribute('shadow', 'cast: false;');
+          var halo = document.createElement('a-ring');
+          halo.setAttribute('position', '2 6 -8');
+          halo.setAttribute('rotation', '0 0 0');
+          halo.setAttribute('radius-inner', '0.9');
+          halo.setAttribute('radius-outer', '2.0');
+          halo.setAttribute('material', 'color: #dfe9ff; opacity: 0.08; side: double; transparent: true;');
+          container.appendChild(moon);
+          container.appendChild(halo);
+        })();
+
+        // create stars in the sky
+        (function spawnStars () {
+          var container = document.querySelector('#star-field');
+          var count = 120;
+          for (var i = 0; i < count; i++) {
+            var theta = Math.random() * Math.PI * 2;
+            var phi = Math.random() * Math.PI * 0.5; // concentrate in upper hemisphere
+            var r = 8 + Math.random()*6;
+            var x = Math.cos(theta)*Math.cos(phi)*r;
+            var y = Math.sin(phi)*r + 2.5;
+            var z = Math.sin(theta)*Math.cos(phi)*r - 2;
+            var star = document.createElement('a-sphere');
+            star.setAttribute('position', x.toFixed(3) + ' ' + y.toFixed(3) + ' ' + z.toFixed(3));
+            var radius = (Math.random()*0.02 + 0.006).toFixed(4);
+            star.setAttribute('radius', radius);
+            star.setAttribute('material', 'color: #ffffff; emissive: #ffffff; roughness: 0.1; metalness: 0;');
+            star.setAttribute('twinkle-star', 'speed: ' + (0.6 + Math.random()*1.6) + '; phase: ' + (Math.random()*Math.PI*2) + ';');
+            star.setAttribute('shadow', 'cast: false; receive: false');
+            container.appendChild(star);
+          }
+        })();
+
+        // create many small glowing blobs (unchanged)
+        (function spawnBlobs () {
+          var container = document.querySelector('#glow-blobs');
+          var count = 28;
+          var radius = 1.8;
+          for (var i = 0; i < count; i++) {
+            var angle = Math.random() * Math.PI * 2;
+            var dist = Math.random() * radius;
+            var x = Math.cos(angle) * dist;
+            var z = Math.sin(angle) * dist - 1.0;
+            var y = 0.8 + Math.random() * 0.6;
+
+            var hue = Math.floor(Math.random() * 360);
+            var speed = 0.3 + Math.random() * 0.6;
+            var amp = 0.12 + Math.random() * 0.22;
+            var phase = Math.random() * Math.PI * 2;
+
+            var sphere = document.createElement('a-sphere');
+            sphere.setAttribute('position', x + ' ' + y + ' ' + z);
+            sphere.setAttribute('radius', 0.06 + Math.random() * 0.06);
+            sphere.setAttribute('segments-width', 8);
+            sphere.setAttribute('segments-height', 6);
+            var col = 'hsl(' + hue + ', 90%, 60%)';
+            sphere.setAttribute('material', 'color: ' + col + '; emissive: ' + col + '; emissiveIntensity: 1; metalness: 0.1; roughness: 0.3;');
+            sphere.setAttribute('float-blob', 'amplitude: ' + amp + '; speed: ' + speed + '; phase: ' + phase + '; hue: ' + hue + ';');
+            sphere.setAttribute('shadow', 'cast: false;');
+
+            var halo = document.createElement('a-sphere');
+            halo.setAttribute('position', '0 0 0');
+            halo.setAttribute('radius', (parseFloat(sphere.getAttribute('radius')) * 3.0).toString());
+            halo.setAttribute('material', 'color: ' + col + '; transparent: true; opacity: 0.18; shader: flat; side: double; depthTest: false;');
+            halo.setAttribute('class', 'halo');
+            halo.setAttribute('shadow', 'cast: false;');
+
+            var wrapper = document.createElement('a-entity');
+            wrapper.appendChild(sphere);
+            wrapper.appendChild(halo);
+            container.appendChild(wrapper);
+          }
+        })();
+      </script>
+    </a-scene>
   </body>
 </html>
+<!-- ...existing code... -->
