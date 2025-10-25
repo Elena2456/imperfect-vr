@@ -1,4 +1,3 @@
-<!-- ...existing code... -->
 <!DOCTYPE html>
 <html>
   <head>
@@ -8,130 +7,185 @@
     <style> body { margin: 0; } </style>
   </head>
   <body>
-    <!-- a scene with floating glowing dots -->
-    <a-scene background="color: #041033">
-      <!-- night sky (base) and subtle starry sky will be added by script -->
+    <a-scene background="color: #041033" shadow="type: pcfsoft">
       <a-sky color="#041033"></a-sky>
 
-      <!-- ground and sky -->
+      <!-- ground -->
       <a-plane rotation="-90 0 0" width="30" height="30" color="#0b1b0f" shadow="receive: true"></a-plane>
 
-      <!-- moonlight directional light (casts shadows) -->
-      <a-entity light="type: directional; color: #dfeeff; intensity: 0.75; castShadow: true"
-                position="-4 8 6"
+      <!-- strong moonlight for silhouettes and shadows -->
+      <a-entity id="moonlight"
+                light="type: directional; color: #e9f6ff; intensity: 0.85; castShadow: true"
+                position="-6 12 8"
                 rotation="-45 35 0"
-                shadow="mapSize: 1024 1024; cameraLeft: -12; cameraRight: 12; cameraBottom: -12; cameraTop: 12"></a-entity>
+                shadow="mapSize: 2048 2048; cameraLeft: -18; cameraRight: 18; cameraBottom: -18; cameraTop: 18"></a-entity>
 
-      <!-- subtle ambient light for context (keeps scene readable; blobs mostly glow via emissive) -->
+      <!-- ambient fill -->
       <a-entity light="type: ambient; color: #223344; intensity: 0.18"></a-entity>
 
-      <!-- camera -->
-      <a-entity position="0 1.6 3.8">
-        <a-camera></a-camera>
+      <!-- camera with foot-sparkle component -->
+      <a-entity id="player" position="0 1.6 3.8">
+        <a-camera id="cam" foot-sparkle></a-camera>
       </a-entity>
 
-      <!-- container for grass, trees, distant deer and blobs -->
+      <!-- containers -->
       <a-entity id="grass-area"></a-entity>
       <a-entity id="trees-area"></a-entity>
       <a-entity id="deer-area"></a-entity>
       <a-entity id="glow-blobs"></a-entity>
       <a-entity id="star-field"></a-entity>
       <a-entity id="moon-area"></a-entity>
+      <a-entity id="castle-area"></a-entity>
 
       <script>
+        // float blobs: slow vertical sine + color pulse
         AFRAME.registerComponent('float-blob', {
           schema: {
-            amplitude: { type: 'number', default: 0.25 },
-            speed: { type: 'number', default: 0.6 },
+            amplitude: { type: 'number', default: 0.12 },
+            speed: { type: 'number', default: 0.45 },
             phase: { type: 'number', default: 0 },
-            hue: { type: 'number', default: 0 } // 0..360
+            hue: { type: 'number', default: 0 }
           },
-          init: function () {
-            this.baseY = this.el.object3D.position.y;
-          },
+          init: function () { this.baseY = this.el.object3D.position.y; },
           tick: function (time) {
-            var t = time / 1000;
-            var s = this.data.speed;
-            var a = this.data.amplitude;
-            var p = this.data.phase;
+            var t = time / 1000, s = this.data.speed, a = this.data.amplitude, p = this.data.phase;
             this.el.object3D.position.y = this.baseY + Math.sin(t * s + p) * a;
-            var hue = (this.data.hue + Math.sin(t * 0.5 + p) * 10) % 360;
-            if (hue < 0) hue += 360;
+            var hue = (this.data.hue + Math.sin(t * 0.5 + p) * 8) % 360; if (hue < 0) hue += 360;
             var color = hslToHex(hue, 90, 60);
             var mesh = this.el.getObject3D('mesh');
             if (mesh && mesh.material) {
               mesh.material.emissive = new THREE.Color(color);
               mesh.material.color = new THREE.Color(color);
-              mesh.material.emissiveIntensity = 0.9 + 0.2 * Math.sin(t * 0.8 + p);
+              mesh.material.emissiveIntensity = 0.9 + 0.18 * Math.sin(t * 0.8 + p);
             }
           }
         });
 
+        // sway for grass blades and small objects (gentle wind)
         AFRAME.registerComponent('sway-blade', {
-          schema: {
-            amplitude: { type: 'number', default: 8 },
-            speed: { type: 'number', default: 0.6 },
-            phase: { type: 'number', default: 0 },
-            axis: { type: 'string', default: 'z' }
-          },
-          init: function () {
-            this.originalRot = this.el.object3D.rotation.clone();
-          },
+          schema: { amplitude: { type: 'number', default: 6 }, speed: { type: 'number', default: 0.45 }, phase: { type: 'number', default: 0 }, axis: { type: 'string', default: 'z' } },
+          init: function () { this.originalRot = this.el.object3D.rotation.clone(); },
           tick: function (time) {
-            var t = time / 1000;
-            var a = this.data.amplitude * Math.PI / 180;
-            var s = this.data.speed;
-            var p = this.data.phase;
+            var t = time / 1000, a = this.data.amplitude * Math.PI / 180, s = this.data.speed, p = this.data.phase;
             var angle = Math.sin(t * s + p) * a;
             var r = this.el.object3D.rotation;
-            if (this.data.axis === 'z') { r.z = this.originalRot.z + angle; }
-            else if (this.data.axis === 'x') { r.x = this.originalRot.x + angle; }
-            else { r.y = this.originalRot.y + angle; }
+            if (this.data.axis === 'z') r.z = this.originalRot.z + angle;
+            else if (this.data.axis === 'x') r.x = this.originalRot.x + angle;
+            else r.y = this.originalRot.y + angle;
           }
         });
 
-        // small twinkling for stars
+        // twinkle for stars
         AFRAME.registerComponent('twinkle-star', {
           schema: { speed: { type: 'number', default: 1.0 }, phase: { type: 'number', default: 0 } },
-          init: function () { this.mat = (this.el.getObject3D('mesh')||{}).material; },
+          init: function () { this.mat = (this.el.getObject3D('mesh') || {}).material; },
           tick: function (time) {
             if (!this.mat) return;
-            var t = time/1000;
-            var p = this.data.phase;
+            var t = time/1000, p = this.data.phase;
             var v = 0.5 + 0.5 * Math.abs(Math.sin(t * this.data.speed + p));
             this.mat.emissiveIntensity = 0.8 + 0.6 * v;
           }
         });
 
-        // helper: convert HSL to hex (number usable by three.js)
+        // fading particles (for foot sparks & others)
+        AFRAME.registerComponent('fade-particle', {
+          schema: { life: { type: 'number', default: 0.7 } },
+          init: function () {
+            this.start = performance.now();
+            this.mesh = (this.el.getObject3D('mesh') || {}).material ? this.el.getObject3D('mesh').material : null;
+          },
+          tick: function (time) {
+            var age = (time - this.start) / 1000;
+            var t = age / this.data.life;
+            if (t >= 1) { this.el.parentNode && this.el.parentNode.removeChild(this.el); return; }
+            var s = 1 - t;
+            this.el.object3D.scale.setScalar(s * 0.9);
+            if (this.mesh) {
+              if (this.mesh.opacity === undefined) { this.mesh.transparent = true; this.mesh.opacity = 1; }
+              this.mesh.opacity = Math.max(0, 1 - t);
+              if (this.mesh.emissive) this.mesh.emissiveIntensity = Math.max(0.2, 1.0 - t);
+            }
+          }
+        });
+
+        // foot sparkle spawner: attach to camera
+        AFRAME.registerComponent('foot-sparkle', {
+          schema: { threshold: { type: 'number', default: 0.01 } },
+          init: function () {
+            this.prev = new THREE.Vector3();
+            this.el.object3D.getWorldPosition(this.prev);
+            this._last = performance.now();
+          },
+          tick: function () {
+            var pos = new THREE.Vector3(); this.el.object3D.getWorldPosition(pos);
+            var now = performance.now();
+            var dt = (now - this._last) / 1000;
+            this._last = now;
+            var speed = pos.distanceTo(this.prev) / Math.max(dt, 1e-6);
+            if (speed > this.data.threshold) {
+              spawnFootSparks(pos.x, 0.04, pos.z, Math.min(8, Math.floor(3 + speed*5)));
+            }
+            this.prev.copy(pos);
+          }
+        });
+
+        // small campfire flicker component
+        AFRAME.registerComponent('flicker-fire', {
+          schema: { speed: { type: 'number', default: 8 }, scale: { type: 'number', default: 0.18 } },
+          init: function () { this.mat = (this.el.getObject3D('mesh')||{}).material; this._rand = Math.random()*10; },
+          tick: function (time) {
+            var t = time/1000 + this._rand;
+            var s = this.data.speed;
+            if (this.mat) {
+              var r = 1.0, g = 0.45 + 0.25 * Math.sin(t * s*0.9), b = 0.06;
+              this.mat.emissive = new THREE.Color(r, Math.max(0, g), b);
+              this.mat.emissiveIntensity = 0.9 + 0.8 * Math.abs(Math.sin(t * s * 0.7));
+              var sc = 1 + 0.18 * Math.sin(t * s * 1.9);
+              this.el.object3D.scale.setScalar(sc * this.data.scale);
+            }
+          }
+        });
+
+        // hsl -> hex (three.js color accepts number)
         function hslToHex(h, s, l) {
-          s /= 100; l /= 100;
-          var c = (1 - Math.abs(2 * l - 1)) * s;
-          var x = c * (1 - Math.abs((h / 60) % 2 - 1));
-          var m = l - c/2;
+          s/=100; l/=100;
+          var c=(1-Math.abs(2*l-1))*s, x=c*(1-Math.abs((h/60)%2-1)), m=l-c/2;
           var r=0,g=0,b=0;
-          if (0<=h && h<60) { r=c; g=x; b=0; }
-          else if (60<=h && h<120) { r=x; g=c; b=0; }
-          else if (120<=h && h<180) { r=0; g=c; b=x; }
-          else if (180<=h && h<240) { r=0; g=x; b=c; }
-          else if (240<=h && h<300) { r=x; g=0; b=c; }
-          else { r=c; g=0; b=x; }
-          r = Math.round((r+m)*255); g = Math.round((g+m)*255); b = Math.round((b+m)*255);
-          return (r<<16) | (g<<8) | b;
+          if (0<=h&&h<60){r=c;g=x;b=0;} else if (60<=h&&h<120){r=x;g=c;b=0;} else if (120<=h&&h<180){r=0;g=c;b=x;}
+          else if (180<=h&&h<240){r=0;g=x;b=c;} else if (240<=h&&h<300){r=x;g=0;b=c;} else {r=c;g=0;b=x;}
+          r=Math.round((r+m)*255); g=Math.round((g+m)*255); b=Math.round((b+m)*255);
+          return (r<<16)|(g<<8)|b;
         }
 
-        // create a swaying grass field
+        // spawn pink foot sparks at ground location
+        function spawnFootSparks(x,y,z,count) {
+          var parent = document.querySelector('a-scene');
+          for (var i=0;i<count;i++){
+            var p = document.createElement('a-sphere');
+            var r = 0.01 + Math.random()*0.02;
+            p.setAttribute('radius', r.toFixed(4));
+            var ox = (Math.random()*0.2 - 0.1), oz = (Math.random()*0.2 - 0.1);
+            p.setAttribute('position', (x+ox).toFixed(3) + ' ' + y.toFixed(3) + ' ' + (z+oz).toFixed(3));
+            var col = 'hsl(320, 85%, ' + (55 + Math.random()*20).toFixed(0) + '%)';
+            p.setAttribute('material', 'color: ' + col + '; emissive: ' + col + '; roughness: 0.3; metalness: 0; transparent: true; opacity: 1;');
+            p.setAttribute('fade-particle', 'life: ' + (0.35 + Math.random()*0.45));
+            p.setAttribute('shadow', 'cast: false; receive: false');
+            parent.appendChild(p);
+          }
+        }
+
+        // spawn dense grass covering entire ground
         (function spawnGrass () {
           var container = document.querySelector('#grass-area');
-          var count = 240;
-          var spread = 3.2;
+          var count = 900;
+          var spread = 12.5;
           for (var i = 0; i < count; i++) {
-            var x = (Math.random()*2-1)*spread;
-            var z = (Math.random()*2-1)*spread - 0.6;
-            var height = 0.25 + Math.random()*0.6;
-            var bladeWidth = 0.02 + Math.random()*0.03;
-            var hue = 95 + Math.random()*35;
-            var lightness = 30 + Math.random()*20;
+            var x = (Math.random()*2-1) * spread;
+            var z = (Math.random()*2-1) * spread;
+            var height = 0.18 + Math.random()*0.6;
+            var bladeWidth = 0.015 + Math.random()*0.035;
+            var hue = 85 + Math.random()*30;
+            var lightness = 28 + Math.random()*22;
             var col = 'hsl(' + Math.floor(hue) + ', 55%, ' + Math.floor(lightness) + '%)';
 
             var wrapper = document.createElement('a-entity');
@@ -139,24 +193,24 @@
             wrapper.object3D && (wrapper.object3D.rotation.y = Math.random()*Math.PI*2);
 
             var blade = document.createElement('a-plane');
-            blade.setAttribute('height', height.toString());
-            blade.setAttribute('width', bladeWidth.toString());
+            blade.setAttribute('height', height.toFixed(3));
+            blade.setAttribute('width', bladeWidth.toFixed(3));
             blade.setAttribute('position', '0 ' + (height/2).toFixed(3) + ' 0');
             blade.setAttribute('rotation', (Math.random()*40-20) + ' ' + (Math.random()*360) + ' 0');
             blade.setAttribute('material', 'color: ' + col + '; side: double; roughness: 1; metalness: 0;');
             blade.setAttribute('shadow', 'cast: true; receive: false');
 
             var highlight = document.createElement('a-plane');
-            highlight.setAttribute('height', (height*0.9).toString());
-            highlight.setAttribute('width', (bladeWidth*0.6).toString());
+            highlight.setAttribute('height', (height*0.9).toFixed(3));
+            highlight.setAttribute('width', (bladeWidth*0.6).toFixed(3));
             highlight.setAttribute('position', '0 ' + (height*0.52).toFixed(3) + ' 0.001');
             highlight.setAttribute('rotation', blade.getAttribute('rotation'));
             var highlightCol = 'hsl(' + Math.floor(hue-10) + ', 60%, ' + Math.floor(Math.min(lightness+18,85)) + '%)';
             highlight.setAttribute('material', 'color: ' + highlightCol + '; side: double; opacity: 0.45; transparent: true;');
             highlight.setAttribute('shadow', 'cast: false;');
 
-            var amplitude = 4 + Math.random()*6;
-            var speed = 0.25 + Math.random()*0.5;
+            var amplitude = 3 + Math.random()*6;
+            var speed = 0.18 + Math.random()*0.45;
             var phase = Math.random()*Math.PI*2;
             var axis = (Math.random()<0.5)? 'z' : 'x';
             wrapper.setAttribute('sway-blade', 'amplitude: ' + amplitude + '; speed: ' + speed + '; phase: ' + phase + '; axis: ' + axis + ';');
@@ -167,32 +221,31 @@
           }
         })();
 
-        // create simple stylized trees with shadows
+        // trees: fewer, spread across whole area
         (function spawnTrees () {
           var container = document.querySelector('#trees-area');
-          var count = 14;
-          var spread = 8;
+          var count = 36; // weniger dicht verteilt
+          var spread = 12.0;
           for (var i = 0; i < count; i++) {
             var x = (Math.random()*2-1) * spread;
-            var z = -6 - Math.random()*6; // place trees farther back
-            var trunkHeight = 0.6 + Math.random()*0.8;
-            var trunkRadius = 0.05 + Math.random()*0.06;
-            var canopySize = 0.5 + Math.random()*0.6;
-            var hue = 90 + Math.random()*30;
-            var col = 'hsl(' + Math.floor(hue) + ', 45%, 22%)';
-            var trunkCol = '#4b2b1f';
+            var z = (Math.random()*2-1) * spread;
+            var trunkHeight = 0.8 + Math.random()*1.4;
+            var trunkRadius = 0.04 + Math.random()*0.08;
+            var canopySize = 0.5 + Math.random()*1.0;
+            var hue = 85 + Math.random()*35;
+            var col = 'hsl(' + Math.floor(hue) + ', 35%, 18%)';
+            var trunkCol = '#3c2a20';
 
             var tree = document.createElement('a-entity');
             tree.setAttribute('position', x + ' 0 ' + z);
 
             var trunk = document.createElement('a-cylinder');
-            trunk.setAttribute('height', trunkHeight.toString());
-            trunk.setAttribute('radius', trunkRadius.toString());
+            trunk.setAttribute('height', trunkHeight.toFixed(3));
+            trunk.setAttribute('radius', trunkRadius.toFixed(3));
             trunk.setAttribute('position', '0 ' + (trunkHeight/2).toFixed(3) + ' 0');
             trunk.setAttribute('material', 'color: ' + trunkCol + '; roughness: 1; metalness: 0;');
             trunk.setAttribute('shadow', 'cast: true; receive: false');
 
-            // canopy: stacked spheres for stylized tree
             var canopy = document.createElement('a-entity');
             var layers = 3;
             for (var l = 0; l < layers; l++) {
@@ -212,44 +265,41 @@
           }
         })();
 
-        // create distant deer silhouettes (simple low-poly groups) that receive moonlight as silhouettes
+        // deer silhouettes standing on the field (distributed over entire area)
         (function spawnDeer () {
           var container = document.querySelector('#deer-area');
-          var count = 5;
+          var count = 10;
+          var spread = 11.0;
           for (var i = 0; i < count; i++) {
-            var x = -6 + Math.random()*12;
-            var z = -12 - Math.random()*8; // far away
+            var x = (Math.random()*2-1) * spread;
+            var z = (Math.random()*2-1) * spread;
             var scale = 0.6 + Math.random()*0.8;
             var deer = document.createElement('a-entity');
             deer.setAttribute('position', x + ' 0 ' + z);
-            deer.setAttribute('rotation', '0 ' + (120 + Math.random()*120).toFixed(1) + ' 0'); // subtle facing
-            deer.object3D && (deer.object3D.rotation.x = 0);
+            deer.setAttribute('rotation', '0 ' + (Math.random()*360).toFixed(1) + ' 0');
 
-            // body
             var body = document.createElement('a-box');
             body.setAttribute('depth', (0.25*scale).toFixed(3));
             body.setAttribute('height', (0.18*scale).toFixed(3));
             body.setAttribute('width', (0.45*scale).toFixed(3));
             body.setAttribute('position', '0 ' + (0.18*scale/2).toFixed(3) + ' 0');
-            body.setAttribute('material', 'color: #020202; roughness: 1; metalness: 0;');
+            body.setAttribute('material', 'color: #010101; roughness: 1; metalness: 0;');
 
-            // neck/head
             var neck = document.createElement('a-box');
             neck.setAttribute('depth', (0.12*scale).toFixed(3));
             neck.setAttribute('height', (0.14*scale).toFixed(3));
             neck.setAttribute('width', (0.12*scale).toFixed(3));
-            neck.setAttribute('position', (0.28*scale).toFixed(3) + ' ' + (0.30*scale).toFixed(3) + ' ' + (0).toFixed(3));
+            neck.setAttribute('position', (0.28*scale).toFixed(3) + ' ' + (0.30*scale).toFixed(3) + ' 0');
             neck.setAttribute('rotation', '-15 0 0');
-            neck.setAttribute('material', 'color: #020202;');
+            neck.setAttribute('material', 'color: #010101;');
 
             var head = document.createElement('a-box');
             head.setAttribute('depth', (0.08*scale).toFixed(3));
             head.setAttribute('height', (0.09*scale).toFixed(3));
             head.setAttribute('width', (0.12*scale).toFixed(3));
-            head.setAttribute('position', (0.45*scale).toFixed(3) + ' ' + (0.33*scale).toFixed(3) + ' 0.0');
-            head.setAttribute('material', 'color: #020202;');
+            head.setAttribute('position', (0.45*scale).toFixed(3) + ' ' + (0.33*scale).toFixed(3) + ' 0');
+            head.setAttribute('material', 'color: #010101;');
 
-            // legs
             for (var l = 0; l < 4; l++) {
               var leg = document.createElement('a-box');
               leg.setAttribute('depth', (0.06*scale).toFixed(3));
@@ -258,19 +308,18 @@
               var lx = (-0.12 + (l%2)*0.22)*scale;
               var lz = (l<2) ? -0.08*scale : 0.08*scale;
               leg.setAttribute('position', lx.toFixed(3) + ' ' + (0.09*scale).toFixed(3) + ' ' + lz.toFixed(3));
-              leg.setAttribute('material', 'color: #020202;');
+              leg.setAttribute('material', 'color: #010101;');
               deer.appendChild(leg);
             }
 
-            // optional small antlers (simple thin boxes)
-            if (Math.random() < 0.6) {
+            if (Math.random() < 0.5) {
               var ant1 = document.createElement('a-box');
               ant1.setAttribute('depth', (0.02*scale).toFixed(3));
               ant1.setAttribute('height', (0.06*scale).toFixed(3));
               ant1.setAttribute('width', (0.02*scale).toFixed(3));
               ant1.setAttribute('position', (0.51*scale).toFixed(3) + ' ' + (0.39*scale).toFixed(3) + ' 0.03');
               ant1.setAttribute('rotation', '0 0 30');
-              ant1.setAttribute('material', 'color: #020202;');
+              ant1.setAttribute('material', 'color: #010101;');
               deer.appendChild(ant1);
               var ant2 = ant1.cloneNode();
               ant2.setAttribute('position', (0.51*scale).toFixed(3) + ' ' + (0.39*scale).toFixed(3) + ' -0.03');
@@ -278,7 +327,6 @@
               deer.appendChild(ant2);
             }
 
-            // ensure deer cast shadows (silhouettes)
             deer.setAttribute('shadow', 'cast: true; receive: false');
             deer.appendChild(body);
             deer.appendChild(neck);
@@ -287,39 +335,143 @@
           }
         })();
 
-        // create moon + soft halo
+        // castle with larger tower + conical roof and curtain wall with drawbridge
+        (function spawnCastle() {
+          var container = document.querySelector('#castle-area');
+          var baseX = -2 + Math.random()*4;
+          var baseZ = -4 + Math.random()*2;
+          var castle = document.createElement('a-entity');
+          castle.setAttribute('position', baseX + ' 0 ' + baseZ);
+
+          // main curtain wall
+          var mainWall = document.createElement('a-box');
+          mainWall.setAttribute('width', '4.6');
+          mainWall.setAttribute('height', '1.8');
+          mainWall.setAttribute('depth', '0.5');
+          mainWall.setAttribute('position', '0 0.9 0');
+          mainWall.setAttribute('material', 'color: #777a7e; roughness: 1; metalness: 0;');
+          mainWall.setAttribute('shadow', 'cast: true; receive: false');
+          castle.appendChild(mainWall);
+
+          // gate opening (visual) - a darker inset
+          var gateFrame = document.createElement('a-box');
+          gateFrame.setAttribute('width', '1.0');
+          gateFrame.setAttribute('height', '1.2');
+          gateFrame.setAttribute('depth', '0.06');
+          gateFrame.setAttribute('position', '0 0.6 0.26');
+          gateFrame.setAttribute('material', 'color: #5f6164; roughness: 1; metalness: 0;');
+          castle.appendChild(gateFrame);
+
+          // drawbridge parent (hinge at front edge)
+          var drawParent = document.createElement('a-entity');
+          drawParent.setAttribute('position', '0 0.0 0.5'); // hinge line at wall front
+          var draw = document.createElement('a-box');
+          draw.setAttribute('width', '1.0');
+          draw.setAttribute('height', '0.06');
+          draw.setAttribute('depth', '1.0');
+          draw.setAttribute('position', '0  -0.50  -0.5'); // so when flat it lies across opening
+          draw.setAttribute('material', 'color: #4a2f20; roughness: 1; metalness: 0;');
+          draw.setAttribute('shadow', 'cast: true; receive: false');
+          draw.setAttribute('animation__swing', 'property: rotation; from: 0 0 0; to: -75 0 0; dur: 1400; dir: alternate; loop: true; easing: easeInOutQuad; delay: 1200');
+          drawParent.appendChild(draw);
+          castle.appendChild(drawParent);
+
+          // crenellations on top of main wall
+          var crenCount = 8;
+          for (var c = 0; c < crenCount; c++) {
+            var cx = -2.3 + (c * (4.6 / (crenCount-1)));
+            var cren = document.createElement('a-box');
+            cren.setAttribute('width', (4.6 / (crenCount*1.5)).toFixed(3));
+            cren.setAttribute('height', '0.18');
+            cren.setAttribute('depth', '0.12');
+            cren.setAttribute('position', cx.toFixed(3) + ' 1.8 0.0');
+            cren.setAttribute('material', 'color: #808386; roughness: 1; metalness: 0;');
+            cren.setAttribute('shadow', 'cast: true; receive: false');
+            castle.appendChild(cren);
+          }
+
+          // existing small ruined tower (keeps visual variety)
+          var smallTower = document.createElement('a-cylinder');
+          smallTower.setAttribute('radius', '0.3');
+          smallTower.setAttribute('height', '1.8');
+          smallTower.setAttribute('position', '-1.8 0.9 -0.8');
+          smallTower.setAttribute('material', 'color: #6b6f74; roughness: 1; metalness: 0;');
+          smallTower.setAttribute('shadow', 'cast: true; receive: false');
+          castle.appendChild(smallTower);
+
+          // larger tower with conical roof (Kegeldach)
+          var bigTower = document.createElement('a-cylinder');
+          bigTower.setAttribute('radius', '0.65');
+          bigTower.setAttribute('height', '3.2');
+          bigTower.setAttribute('position', '1.9 1.6 -0.2');
+          bigTower.setAttribute('material', 'color: #6b6f74; roughness: 1; metalness: 0;');
+          bigTower.setAttribute('shadow', 'cast: true; receive: false');
+          castle.appendChild(bigTower);
+
+          var coneRoof = document.createElement('a-cone');
+          coneRoof.setAttribute('radius-bottom', '0.78');
+          coneRoof.setAttribute('height', '1.0');
+          coneRoof.setAttribute('position', '1.9 3.05 -0.2');
+          coneRoof.setAttribute('material', 'color: #3d2b2b; roughness: 0.9; metalness: 0;');
+          coneRoof.setAttribute('shadow', 'cast: true; receive: false');
+          castle.appendChild(coneRoof);
+
+          // small arrow slits on big tower
+          for (var s = 0; s < 3; s++) {
+            var slit = document.createElement('a-box');
+            slit.setAttribute('width', '0.08');
+            slit.setAttribute('height', '0.22');
+            slit.setAttribute('depth', '0.02');
+            slit.setAttribute('position', (1.9 + (s===1? -0.12 : (s===2? 0.12 : 0))).toFixed(3) + ' ' + (0.9 + s*0.5).toFixed(3) + ' -0.5');
+            slit.setAttribute('material', 'color: #4f5153; roughness: 1; metalness: 0;');
+            castle.appendChild(slit);
+          }
+
+          // small decorative arch/ruin block to the side
+          var arch = document.createElement('a-box');
+          arch.setAttribute('width', '0.9');
+          arch.setAttribute('height', '1.0');
+          arch.setAttribute('depth', '0.2');
+          arch.setAttribute('position', '-0.9 0.5 0.8');
+          arch.setAttribute('material', 'color: #75787c; roughness: 1; metalness: 0;');
+          arch.setAttribute('shadow', 'cast: true; receive: false');
+          castle.appendChild(arch);
+
+          container.appendChild(castle);
+        })();
+
+        // moon + halo
         (function spawnMoon () {
           var container = document.querySelector('#moon-area');
           var moon = document.createElement('a-sphere');
-          moon.setAttribute('position', '2 6 -8');
-          moon.setAttribute('radius', '0.7');
-          moon.setAttribute('material', 'color: #fff7e6; emissive: #fff7e6; emissiveIntensity: 1; roughness: 0.2; metalness: 0;');
+          moon.setAttribute('position', '3 7 -10');
+          moon.setAttribute('radius', '0.75');
+          moon.setAttribute('material', 'color: #fffbe6; emissive: #fffbe6; emissiveIntensity: 1; roughness: 0.2; metalness: 0;');
           moon.setAttribute('shadow', 'cast: false;');
           var halo = document.createElement('a-ring');
-          halo.setAttribute('position', '2 6 -8');
+          halo.setAttribute('position', '3 7 -10');
           halo.setAttribute('rotation', '0 0 0');
-          halo.setAttribute('radius-inner', '0.9');
-          halo.setAttribute('radius-outer', '2.0');
-          halo.setAttribute('material', 'color: #dfe9ff; opacity: 0.08; side: double; transparent: true;');
+          halo.setAttribute('radius-inner', '1.0');
+          halo.setAttribute('radius-outer', '2.8');
+          halo.setAttribute('material', 'color: #dfe9ff; opacity: 0.06; side: double; transparent: true;');
           container.appendChild(moon);
           container.appendChild(halo);
         })();
 
-        // create stars in the sky
+        // stars
         (function spawnStars () {
           var container = document.querySelector('#star-field');
-          var count = 120;
+          var count = 140;
           for (var i = 0; i < count; i++) {
             var theta = Math.random() * Math.PI * 2;
-            var phi = Math.random() * Math.PI * 0.5; // concentrate in upper hemisphere
-            var r = 8 + Math.random()*6;
+            var phi = Math.random() * Math.PI * 0.55;
+            var r = 10 + Math.random()*10;
             var x = Math.cos(theta)*Math.cos(phi)*r;
-            var y = Math.sin(phi)*r + 2.5;
+            var y = Math.sin(phi)*r + 2.8;
             var z = Math.sin(theta)*Math.cos(phi)*r - 2;
             var star = document.createElement('a-sphere');
             star.setAttribute('position', x.toFixed(3) + ' ' + y.toFixed(3) + ' ' + z.toFixed(3));
-            var radius = (Math.random()*0.02 + 0.006).toFixed(4);
-            star.setAttribute('radius', radius);
+            star.setAttribute('radius', (Math.random()*0.02 + 0.006).toFixed(4));
             star.setAttribute('material', 'color: #ffffff; emissive: #ffffff; roughness: 0.1; metalness: 0;');
             star.setAttribute('twinkle-star', 'speed: ' + (0.6 + Math.random()*1.6) + '; phase: ' + (Math.random()*Math.PI*2) + ';');
             star.setAttribute('shadow', 'cast: false; receive: false');
@@ -327,37 +479,34 @@
           }
         })();
 
-        // create many small glowing blobs (unchanged)
+        // floating glowing blobs (smaller, fewer, widely distributed over entire field)
         (function spawnBlobs () {
           var container = document.querySelector('#glow-blobs');
-          var count = 28;
-          var radius = 1.8;
+          var count = 18;
+          var spread = 11.5;
           for (var i = 0; i < count; i++) {
-            var angle = Math.random() * Math.PI * 2;
-            var dist = Math.random() * radius;
-            var x = Math.cos(angle) * dist;
-            var z = Math.sin(angle) * dist - 1.0;
-            var y = 0.8 + Math.random() * 0.6;
-
+            var x = (Math.random()*2-1) * spread;
+            var z = (Math.random()*2-1) * spread;
+            var y = 0.6 + Math.random()*1.0;
             var hue = Math.floor(Math.random() * 360);
-            var speed = 0.3 + Math.random() * 0.6;
-            var amp = 0.12 + Math.random() * 0.22;
+            var speed = 0.2 + Math.random() * 0.5;
+            var amp = 0.08 + Math.random() * 0.14;
             var phase = Math.random() * Math.PI * 2;
 
             var sphere = document.createElement('a-sphere');
-            sphere.setAttribute('position', x + ' ' + y + ' ' + z);
-            sphere.setAttribute('radius', 0.06 + Math.random() * 0.06);
+            sphere.setAttribute('position', x.toFixed(3) + ' ' + y.toFixed(3) + ' ' + z.toFixed(3));
+            sphere.setAttribute('radius', (0.035 + Math.random() * 0.03).toFixed(4));
             sphere.setAttribute('segments-width', 8);
             sphere.setAttribute('segments-height', 6);
             var col = 'hsl(' + hue + ', 90%, 60%)';
-            sphere.setAttribute('material', 'color: ' + col + '; emissive: ' + col + '; emissiveIntensity: 1; metalness: 0.1; roughness: 0.3;');
+            sphere.setAttribute('material', 'color: ' + col + '; emissive: ' + col + '; emissiveIntensity: 1; metalness: 0.05; roughness: 0.35;');
             sphere.setAttribute('float-blob', 'amplitude: ' + amp + '; speed: ' + speed + '; phase: ' + phase + '; hue: ' + hue + ';');
             sphere.setAttribute('shadow', 'cast: false;');
 
             var halo = document.createElement('a-sphere');
             halo.setAttribute('position', '0 0 0');
-            halo.setAttribute('radius', (parseFloat(sphere.getAttribute('radius')) * 3.0).toString());
-            halo.setAttribute('material', 'color: ' + col + '; transparent: true; opacity: 0.18; shader: flat; side: double; depthTest: false;');
+            halo.setAttribute('radius', (parseFloat(sphere.getAttribute('radius')) * 2.6).toString());
+            halo.setAttribute('material', 'color: ' + col + '; transparent: true; opacity: 0.14; shader: flat; side: double; depthTest: false;');
             halo.setAttribute('class', 'halo');
             halo.setAttribute('shadow', 'cast: false;');
 
@@ -367,8 +516,293 @@
             container.appendChild(wrapper);
           }
         })();
+
+        // spawn a campfire between some trees (placed inside trees-area)
+        (function spawnCampfire () {
+          var container = document.querySelector('#trees-area');
+          var x = -3 + Math.random()*6;
+          var z = -1 + Math.random()*6;
+          var fire = document.createElement('a-entity');
+          fire.setAttribute('position', x + ' 0 ' + z);
+
+          var stones = 8;
+          for (var i=0;i<stones;i++){
+            var a = (i/stones) * Math.PI*2;
+            var sx = Math.cos(a) * 0.32;
+            var sz = Math.sin(a) * 0.32;
+            var st = document.createElement('a-cylinder');
+            st.setAttribute('radius', '0.07');
+            st.setAttribute('height', '0.06');
+            st.setAttribute('position', sx.toFixed(3) + ' 0.03 ' + sz.toFixed(3));
+            st.setAttribute('rotation', '0 ' + (Math.random()*360).toFixed(1) + ' 0');
+            st.setAttribute('material', 'color: #4b4038; roughness: 1; metalness: 0;');
+            st.setAttribute('shadow', 'cast: true; receive: false');
+            fire.appendChild(st);
+          }
+
+          for (var l=0;l<3;l++){
+            var log = document.createElement('a-box');
+            log.setAttribute('width', '0.45');
+            log.setAttribute('depth', '0.12');
+            log.setAttribute('height', '0.08');
+            log.setAttribute('position', (Math.random()*0.08-0.04).toFixed(3) + ' 0.06 ' + (Math.random()*0.08-0.04).toFixed(3));
+            log.setAttribute('rotation', (Math.random()*40-20).toFixed(1) + ' ' + (Math.random()*90).toFixed(1) + ' 0');
+            log.setAttribute('material', 'color: #5a3f2a; roughness: 1; metalness: 0;');
+            log.setAttribute('shadow', 'cast: true; receive: false');
+            fire.appendChild(log);
+          }
+
+          for (var f=0; f<5; f++){
+            var flame = document.createElement('a-sphere');
+            var fx = (Math.random()*0.12 - 0.06);
+            var fz = (Math.random()*0.12 - 0.06);
+            flame.setAttribute('position', fx.toFixed(3) + ' 0.12 ' + fz.toFixed(3));
+            flame.setAttribute('radius', (0.06 + Math.random()*0.06).toFixed(3));
+            flame.setAttribute('material', 'color: #ff8a2b; emissive: #ff8a2b; roughness: 0.2; metalness: 0; transparent: true; opacity: 0.95;');
+            flame.setAttribute('flicker-fire', 'speed: ' + (6 + Math.random()*6) + '; scale: ' + (0.12 + Math.random()*0.12) + ';');
+            flame.setAttribute('shadow', 'cast: true; receive: false');
+            fire.appendChild(flame);
+          }
+
+          container.appendChild(fire);
+        })();
+
+        // spawn a clearing with stone circle, campfire and the wizard standing beside it
+        (function spawnClearingWithWizard () {
+          var treesContainer = document.querySelector('#trees-area');
+          var deerContainer = document.querySelector('#deer-area');
+          var cx = -3 + Math.random()*6;
+          var cz = -1 + Math.random()*6;
+
+          var circle = document.createElement('a-entity');
+          circle.setAttribute('position', cx + ' 0 ' + cz);
+
+          var stones = 12;
+          var radius = 0.9;
+          for (var i = 0; i < stones; i++) {
+            var a = (i / stones) * Math.PI * 2;
+            var sx = Math.cos(a) * radius;
+            var sz = Math.sin(a) * radius;
+            var st = document.createElement('a-box');
+            st.setAttribute('width', (0.2 + Math.random()*0.08).toFixed(3));
+            st.setAttribute('depth', (0.12 + Math.random()*0.06).toFixed(3));
+            st.setAttribute('height', (0.08 + Math.random()*0.12).toFixed(3));
+            st.setAttribute('position', sx.toFixed(3) + ' 0.04 ' + sz.toFixed(3));
+            st.setAttribute('rotation', '0 ' + (Math.random()*360).toFixed(1) + ' 0');
+            st.setAttribute('material', 'color: #4b4038; roughness: 1; metalness: 0;');
+            st.setAttribute('shadow', 'cast: true; receive: false');
+            circle.appendChild(st);
+          }
+
+          var fire = document.createElement('a-entity');
+          fire.setAttribute('position', '0 0 0');
+
+          for (var l = 0; l < 3; l++) {
+            var log = document.createElement('a-box');
+            log.setAttribute('width', '0.45');
+            log.setAttribute('depth', '0.12');
+            log.setAttribute('height', '0.08');
+            log.setAttribute('position', (Math.random()*0.08-0.04).toFixed(3) + ' 0.06 ' + (Math.random()*0.08-0.04).toFixed(3));
+            log.setAttribute('rotation', (Math.random()*40-20).toFixed(1) + ' ' + (Math.random()*90).toFixed(1) + ' 0');
+            log.setAttribute('material', 'color: #5a3f2a; roughness: 1; metalness: 0;');
+            log.setAttribute('shadow', 'cast: true; receive: false');
+            fire.appendChild(log);
+          }
+
+          for (var f = 0; f < 6; f++) {
+            var flame = document.createElement('a-sphere');
+            var fx = (Math.random()*0.12 - 0.06);
+            var fz = (Math.random()*0.12 - 0.06);
+            flame.setAttribute('position', fx.toFixed(3) + ' 0.12 ' + fz.toFixed(3));
+            flame.setAttribute('radius', (0.06 + Math.random()*0.06).toFixed(3));
+            flame.setAttribute('material', 'color: #ff8a2b; emissive: #ff8a2b; roughness: 0.2; metalness: 0; transparent: true; opacity: 0.95;');
+            flame.setAttribute('flicker-fire', 'speed: ' + (6 + Math.random()*6) + '; scale: ' + (0.12 + Math.random()*0.12) + ';');
+            flame.setAttribute('shadow', 'cast: true; receive: false');
+            fire.appendChild(flame);
+          }
+
+          circle.appendChild(fire);
+          treesContainer.appendChild(circle);
+
+          // wizard stands just outside stone circle, illuminated by his wand
+          var wiz = document.createElement('a-entity');
+          var wx = cx + (0.9 + 0.35) * (Math.random() < 0.5 ? 1 : -1);
+          var wz = cz + (Math.random()*0.6 - 0.3);
+          wiz.setAttribute('position', wx.toFixed(3) + ' 0 ' + wz.toFixed(3));
+          var scale = 0.8;
+          wiz.setAttribute('scale', scale + ' ' + scale + ' ' + scale);
+
+          var cloak = document.createElement('a-box');
+          cloak.setAttribute('width', '0.34');
+          cloak.setAttribute('height', '1.05');
+          cloak.setAttribute('depth', '0.14');
+          cloak.setAttribute('position', '0 0.525 0');
+          cloak.setAttribute('material', 'color: #060608; roughness: 1; metalness: 0;');
+          cloak.setAttribute('shadow', 'cast: true; receive: false');
+
+          var head = document.createElement('a-box');
+          head.setAttribute('width', '0.16');
+          head.setAttribute('height', '0.14');
+          head.setAttribute('depth', '0.14');
+          head.setAttribute('position', '0 1.15 0');
+          head.setAttribute('material', 'color: #060608;');
+
+          var hat = document.createElement('a-cone');
+          hat.setAttribute('radius-bottom', '0.20');
+          hat.setAttribute('height', '0.45');
+          hat.setAttribute('position', '0 1.38 0');
+          hat.setAttribute('material', 'color: #060608;');
+
+          var arm = document.createElement('a-box');
+          arm.setAttribute('width', '0.06');
+          arm.setAttribute('height', '0.52');
+          arm.setAttribute('depth', '0.06');
+          arm.setAttribute('position', '0.22 0.92 0');
+          arm.setAttribute('rotation', '-50 0 0');
+          arm.setAttribute('material', 'color: #060608;');
+
+          var wand = document.createElement('a-cylinder');
+          wand.setAttribute('radius', '0.01');
+          wand.setAttribute('height', '0.42');
+          wand.setAttribute('position', '0.40 1.12 0');
+          wand.setAttribute('rotation', '0 0 90');
+          wand.setAttribute('material', 'color: #332d2a; roughness: 1; metalness: 0;');
+
+          var tip = document.createElement('a-sphere');
+          tip.setAttribute('radius', '0.04');
+          tip.setAttribute('position', '0.55 1.20 0');
+          tip.setAttribute('material', 'color: #ffffff; emissive: #ffffff; emissiveIntensity: 2.2;');
+          tip.setAttribute('shadow', 'cast: false;');
+
+          // light emitted from wand tip to illuminate wizard and immediate surroundings
+          var wandLight = document.createElement('a-entity');
+          wandLight.setAttribute('position', '0 0 0');
+          wandLight.setAttribute('light', 'type: point; color: #ffffff; intensity: 1.6; distance: 4; decay: 2');
+          tip.appendChild(wandLight);
+
+          wiz.appendChild(cloak);
+          wiz.appendChild(head);
+          wiz.appendChild(hat);
+          wiz.appendChild(arm);
+          wiz.appendChild(wand);
+          wand.appendChild(tip);
+
+          wiz.setAttribute('shadow', 'cast: true; receive: false');
+
+          deerContainer.appendChild(wiz);
+        })();
+
+        // shooting star (leuchtende Sternschnuppe) in sky instead of dragon
+        (function spawnShootingStar () {
+          var container = document.querySelector('#star-field');
+          var meteor = document.createElement('a-entity');
+          meteor.setAttribute('position', '-12 12 -2');
+
+          var core = document.createElement('a-sphere');
+          core.setAttribute('radius', '0.07');
+          core.setAttribute('material', 'color: #ffffff; emissive: #ffffff; emissiveIntensity: 3; transparent: true; opacity: 1;');
+          core.setAttribute('shadow', 'cast: false; receive: false');
+
+          var trail = document.createElement('a-cone');
+          trail.setAttribute('radius-bottom', '0.18');
+          trail.setAttribute('height', '1.2');
+          trail.setAttribute('rotation', '0 0 180');
+          trail.setAttribute('position', '-0.55 -0.15 0');
+          trail.setAttribute('material', 'color: #fff7d9; transparent: true; opacity: 0.75; side: double;');
+
+          meteor.appendChild(trail);
+          meteor.appendChild(core);
+          container.appendChild(meteor);
+
+          meteor.setAttribute('animation__move', 'property: position; from: -12 12 -2; to: 12 4 -22; dur: 1600; easing: linear; loop: true; delay: 2000');
+          core.setAttribute('animation__fade', 'property: material.opacity; from: 1; to: 0; dur: 1600; easing: linear; loop: true; delay: 2000');
+          trail.setAttribute('animation__fade', 'property: material.opacity; from: 0.75; to: 0; dur: 1600; easing: linear; loop: true; delay: 2000');
+        })();
+
+        // spawn a human silhouette holding a staff with glowing white orb on the grass
+        (function spawnHumanWithStaff () {
+          var container = document.querySelector('#deer-area');
+          var x = -1 + Math.random()*2;
+          var z = 1 + Math.random()*2;
+          var human = document.createElement('a-entity');
+          human.setAttribute('position', x.toFixed(3) + ' 0 ' + z.toFixed(3));
+          human.setAttribute('rotation', '0 ' + (Math.random()*360).toFixed(1) + ' 0');
+
+          // torso / cloak
+          var torso = document.createElement('a-box');
+          torso.setAttribute('width', '0.22');
+          torso.setAttribute('height', '0.9');
+          torso.setAttribute('depth', '0.12');
+          torso.setAttribute('position', '0 0.45 0');
+          torso.setAttribute('material', 'color: #030303; roughness: 1; metalness: 0;');
+          torso.setAttribute('shadow', 'cast: true; receive: false');
+
+          // head
+          var head = document.createElement('a-box');
+          head.setAttribute('width', '0.14');
+          head.setAttribute('height', '0.14');
+          head.setAttribute('depth', '0.14');
+          head.setAttribute('position', '0 1.04 0');
+          head.setAttribute('material', 'color: #030303;');
+
+          // legs
+          var legL = document.createElement('a-box');
+          legL.setAttribute('width', '0.06'); legL.setAttribute('height', '0.40'); legL.setAttribute('depth', '0.06');
+          legL.setAttribute('position', '-0.06 0.20 0');
+          legL.setAttribute('material', 'color: #030303;');
+          var legR = legL.cloneNode();
+          legR.setAttribute('position', '0.06 0.20 0');
+
+          // arms
+          var armL = document.createElement('a-box');
+          armL.setAttribute('width', '0.06'); armL.setAttribute('height', '0.42'); armL.setAttribute('depth', '0.06');
+          armL.setAttribute('position', '-0.14 0.78 0');
+          armL.setAttribute('rotation', '0 0 6');
+          armL.setAttribute('material', 'color: #030303;');
+          var armR = document.createElement('a-box');
+          armR.setAttribute('width', '0.06'); armR.setAttribute('height', '0.42'); armR.setAttribute('depth', '0.06');
+          armR.setAttribute('position', '0.14 0.78 0');
+          armR.setAttribute('rotation', '0 0 -6');
+          armR.setAttribute('material', 'color: #030303;');
+
+          // staff (longer than wizard's)
+          var staff = document.createElement('a-cylinder');
+          staff.setAttribute('radius', '0.02');
+          staff.setAttribute('height', '1.4');
+          staff.setAttribute('position', '0.30 0.75 0');
+          staff.setAttribute('rotation', '0 0 90');
+          staff.setAttribute('material', 'color: #34261f; roughness: 1; metalness: 0;');
+          staff.setAttribute('shadow', 'cast: true; receive: false');
+
+          // glowing orb on staff tip
+          var orb = document.createElement('a-sphere');
+          orb.setAttribute('radius', '0.05');
+          orb.setAttribute('position', '0.98 0.75 0'); // relative to human — will be transformed by staff positioning
+          orb.setAttribute('material', 'color: #ffffff; emissive: #ffffff; emissiveIntensity: 2.4; transparent: true; opacity: 1;');
+          orb.setAttribute('shadow', 'cast: false;');
+
+          // small point light to illuminate nearby area
+          var orbLight = document.createElement('a-entity');
+          orbLight.setAttribute('position', '0 0 0');
+          orbLight.setAttribute('light', 'type: point; color: #ffffff; intensity: 1.4; distance: 4; decay: 2');
+          orb.appendChild(orbLight);
+
+          // attach components
+          human.appendChild(torso);
+          human.appendChild(head);
+          human.appendChild(legL);
+          human.appendChild(legR);
+          human.appendChild(armL);
+          human.appendChild(armR);
+          human.appendChild(staff);
+          // place orb as child of the staff so it follows
+          staff.appendChild(orb);
+
+          human.setAttribute('shadow', 'cast: true; receive: false');
+          container.appendChild(human);
+        })();
+
       </script>
     </a-scene>
   </body>
 </html>
-<!-- ...existing code... -->
