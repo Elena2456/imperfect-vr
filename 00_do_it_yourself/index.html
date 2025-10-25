@@ -437,7 +437,73 @@
           arch.setAttribute('shadow', 'cast: true; receive: false');
           castle.appendChild(arch);
 
+          // add castle to scene
           container.appendChild(castle);
+
+          // Remove obstructing trees:
+          // 1) remove nearest tree to player (so the area in front of the headset is clear)
+          // 2) remove a tree that lies approximately on the line between player and castle
+          (function removeObstructingTrees() {
+            var treesContainer = document.querySelector('#trees-area');
+            if (!treesContainer) return;
+            // copy children to array
+            var treeNodes = Array.prototype.slice.call(treesContainer.children || []);
+            if (treeNodes.length === 0) return;
+
+            // get player world position
+            var playerEnt = document.querySelector('#player');
+            var playerPos = { x: 0, z: 3.8 };
+            if (playerEnt && playerEnt.object3D) {
+              var wp = new THREE.Vector3();
+              playerEnt.object3D.getWorldPosition(wp);
+              playerPos.x = wp.x; playerPos.z = wp.z;
+            }
+
+            // castle position (world) - castle is parented under #castle-area which is world-aligned, use baseX/baseZ
+            var castlePos = { x: baseX, z: baseZ };
+
+            // 1) remove closest tree to player within radius
+            var closest = null;
+            var minD = Infinity;
+            treeNodes.forEach(function (t) {
+              var pos = t.object3D ? t.object3D.position : null;
+              if (!pos) return;
+              var d = Math.hypot(pos.x - playerPos.x, pos.z - playerPos.z);
+              if (d < minD) { minD = d; closest = t; }
+            });
+            if (closest && minD < 1.2) {
+              closest.parentNode && closest.parentNode.removeChild(closest);
+              // remove from array so we don't pick same again
+              var idx = treeNodes.indexOf(closest);
+              if (idx !== -1) treeNodes.splice(idx, 1);
+            }
+
+            // 2) remove a tree that lies between player and castle (closest to the line and between endpoints)
+            var segX = castlePos.x - playerPos.x;
+            var segZ = castlePos.z - playerPos.z;
+            var segLen2 = segX*segX + segZ*segZ;
+            if (segLen2 > 0.0001) {
+              var candidate = null;
+              var bestPerp = Infinity;
+              treeNodes.forEach(function (t) {
+                var pos = t.object3D ? t.object3D.position : null;
+                if (!pos) return;
+                var vx = pos.x - playerPos.x;
+                var vz = pos.z - playerPos.z;
+                var proj = (vx*segX + vz*segZ) / segLen2;
+                // only consider trees that are between player and castle (not too close to ends)
+                if (proj < 0.15 || proj > 0.95) return;
+                var projX = playerPos.x + segX * proj;
+                var projZ = playerPos.z + segZ * proj;
+                var perp = Math.hypot(pos.x - projX, pos.z - projZ);
+                if (perp < bestPerp) { bestPerp = perp; candidate = t; }
+              });
+              if (candidate && bestPerp < 0.8) {
+                candidate.parentNode && candidate.parentNode.removeChild(candidate);
+              }
+            }
+          })();
+
         })();
 
         // moon + halo
